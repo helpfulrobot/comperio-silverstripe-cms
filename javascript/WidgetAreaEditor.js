@@ -107,6 +107,13 @@ WidgetAreaEditorClass.prototype = {
 				return;
 			}
 		}
+
+		//DNGMod: WidgetGridSupport
+        var parts = className.split('|');
+        if (parts.length > 1) {
+            className = parts[0] + '?' + 'WidgetClassName=' + parts[1];
+        }
+        //ENDMOD
 		
 		
 		this.name = holder;
