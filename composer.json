@@ -1,8 +1,8 @@
 {
-	"name": "silverstripe/cms",
+	"name": "comperio/silverstripe-cms",
 	"description": "The SilverStripe Content Management System",
 	"type": "silverstripe-module",
-	"keywords": ["silverstripe", "cms"],
+	"keywords": ["silverstripe", "cms", "dng", "comperio", "discoveryng"],
 	"homepage": "http://silverstripe.org/cms",
 	"license": "BSD-3-Clause",
 	"authors": [
@@ -13,11 +13,16 @@
 		{
 			"name": "The SilverStripe Community",
 			"homepage": "http://silverstripe.org"
+		},
+		{
+			"name": "Nicolò Martini ",
+			"email": "nicmartnic@gmail.com",
+			"homepage": "http://nicolo.martini.io"
 		}
 	],
 	"require": {
 		"php": ">=5.2.4",
 		"composer/installers": "*",
-		"silverstripe/framework": "2.4.*"
+		"comperio/silverstripe-framework": "2.4.*"
 	}
 }
