@@ -23,6 +23,6 @@
 	"require": {
 		"php": ">=5.2.4",
 		"composer/installers": "*",
-		"comperio/silverstripe-framework": "2.4.*"
+		"comperio/silverstripe-framework": "2.4.10.1"
 	}
 }
