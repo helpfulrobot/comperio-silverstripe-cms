@@ -118,9 +118,10 @@ JS
 		Requirements::css(CMS_DIR . "/css/cms_left.css");
 		Requirements::css(CMS_DIR . "/css/cms_right.css");
 		
-		if(isset($data['ID']) && $data['ID'] != 'root') $folder = DataObject::get_by_id("Folder", $data['ID']);
+		$id = (int) $this->request->param('ID');
+		if($id) $folder = DataObject::get_by_id("Folder", $id);
 		else $folder = singleton('Folder');
-		
+
 		return array( 'CanUpload' => $folder->canEdit());
 	}
 	
@@ -208,8 +209,12 @@ JS
 		}
 		$processedData = array_reverse($processedData);
 				
-		if($data['FolderID'] && $data['FolderID'] != '') $folder = DataObject::get_by_id("Folder", $data['FolderID']);
-		else $folder = singleton('Folder');
+		if($data['FolderID'] && $data['FolderID'] != '') {
+			$folder = DataObject::get_by_id("Folder", $data['FolderID']);
+			if(!$folder) throw new InvalidArgumentException(sprintf("Folder #%d doesn't exist", (int)$data['FolderID']));
+		} else {
+			$folder = singleton('Folder');
+		}
 
 		foreach($processedFiles as $filePostId => $tmpFile) {
 			if($tmpFile['error'] == UPLOAD_ERR_NO_TMP_DIR) {
@@ -250,17 +255,17 @@ JS
 				
 				// move file to given folder
 				if($valid) {
-					$newFile = $folder->addUploadToFolder($tmpFile);
-					
-					if(self::$metadata_upload_enabled && isset($processedData[$filePostId])) {
-						$fileObject = DataObject::get_by_id('File', $newFile);
-						$metadataForm = new Form($this, 'MetadataForm', $fileObject->uploadMetadataFields(), new FieldSet());
-						$metadataForm->loadDataFrom($processedData[$filePostId]);
-						$metadataForm->saveInto($fileObject);
-						$fileObject->write();
+					if($newFile = $folder->addUploadToFolder($tmpFile)) {
+						if(self::$metadata_upload_enabled && isset($processedData[$filePostId])) {
+							$fileObject = DataObject::get_by_id('File', $newFile);
+							$metadataForm = new Form($this, 'MetadataForm', $fileObject->uploadMetadataFields(), new FieldSet());
+							$metadataForm->loadDataFrom($processedData[$filePostId]);
+							$metadataForm->saveInto($fileObject);
+							$fileObject->write();
+						}
+
+						$newFiles[] = $newFile;
 					}
-					
-					$newFiles[] = $newFile;
 				}
 			}
 		}
@@ -482,6 +487,8 @@ HTML;
 	 */
 	public function savefile($data, $form) {
 		$record = DataObject::get_by_id("File", $data['ID']);
+		if(!$record) return $this->httpError(400);
+		
 		$form->saveInto($record);
 		$record->write();
 		$title = Convert::raw2js($record->Title);
@@ -535,6 +542,8 @@ JS;
 	 */
 	public function getsubtree() {
 		$obj = DataObject::get_by_id('Folder', $_REQUEST['ID']);
+		if(!$obj) return false;
+		
 		$obj->setMarkingFilter('ClassName', ClassInfo::subclassesFor('Folder'));
 		$obj->markPartialTree();
 
@@ -664,6 +673,8 @@ JS;
 		
 		if($fileID = $this->urlParams['ID']) {
 			$file = DataObject::get_by_id('File', $fileID);
+			if(!$file) return $this->httpError(400);
+			
 			// Delete the temp verions of this file in assets/_resampled
 			if($file instanceof Image) {
 				$file->deleteFormattedImages();

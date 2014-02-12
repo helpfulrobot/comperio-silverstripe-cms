@@ -1,20 +1,27 @@
 function action_publish_right() {
-	$('Form_EditForm_action_publish').value = ss.i18n._t('CMSMAIN.PUBLISHING');
-	$('Form_EditForm_action_publish').className = 'action loading';
+	// Don't need to restore the button state after ajax success because the form is replaced completely
+	var btn = jQuery('#Form_EditForm_action_publish');
+	btn.val(ss.i18n._t('CMSMAIN.PUBLISHING')).addClass('loading').attr('disabled', 'disabled');
 	var publish = true;
 	$('Form_EditForm').save(false, null, 'save', publish);
 }
 function action_revert_right() {
-	$('Form_EditForm_action_revert').value = ss.i18n._t('CMSMAIN.RESTORING');
-	$('Form_EditForm_action_revert').className = 'action loading';
+	// Don't need to restore the button state after ajax success because the form is replaced completely
+	var btn = jQuery('#Form_EditForm_action_revert');
+	btn.val(ss.i18n._t('CMSMAIN.RESTORING')).addClass('loading').attr('disabled', 'disabled');
 	Ajax.SubmitForm('Form_EditForm', 'action_revert', {
 		onFailure : function(response) {
+			btn.removeClass('loading').removeAttr('disabled');
 			errorMessage(ss.i18n._t('CMSMAIN.ERRORREVERTING'), response);
 		}
 	});
 }
 
 function action_rollback_right() {
+	// Don't need to restore the button state after ajax success because the form is replaced completely
+	var btn = jQuery('#Form_EditForm_action_rollback');
+	btn.addClass('loading').attr('disabled', 'disabled');
+	
 	var options = {
 		OK: function() {
 			var pageID = $('Form_EditForm').elements.ID.value;
@@ -25,6 +32,7 @@ function action_rollback_right() {
 					statusMessage(response.responseText,'good');
 				},
 				onFailure : function(response) {
+					btn.removeClass('loading').removeAttr('disabled');
 					errorMessage('Error rolling back content', response);
 				}
 			});
@@ -129,6 +137,25 @@ Behaviour.register({
 			} else {
 				Element.show('ParentID');
 			}
+		}
+	},
+	
+	'#Form_EditForm_URLSegment' : {
+		onchange: function(e) {
+			var $this = jQuery(this);
+			
+			if(!$this.val()) return;
+			
+			$this.attr('disabled', 'disabled').parents('.field:first').addClass('loading');
+			var oldVal = $this.val();
+			jQuery.get(
+				$this.parents('form:first').attr('action') + 
+					'/field/URLSegment/suggest/?value=' + encodeURIComponent($this.val()),
+				function(data) {
+					$this.removeAttr('disabled').parents('.field:first').removeClass('loading');
+					$this.val(decodeURIComponent(data.value));
+				}
+			);
 		}
 	}
 });

@@ -281,6 +281,7 @@ class LeftAndMain extends Controller {
 				THIRDPARTY_DIR . '/scriptaculous/controls.js',
 				THIRDPARTY_DIR . '/greybox/AmiJS.js',
 				THIRDPARTY_DIR . '/greybox/greybox.js',
+				CMS_DIR . '/thirdparty/jquery-getscrollbarwidth/jquery.getscrollbarwidth.js',
 				CMS_DIR . '/javascript/LeftAndMain.js',
 				CMS_DIR . '/javascript/LeftAndMain_left.js',
 				CMS_DIR . '/javascript/LeftAndMain_right.js',
@@ -301,9 +302,6 @@ class LeftAndMain extends Controller {
 				CMS_DIR . '/javascript/SideReports.js',
 				CMS_DIR . '/javascript/LangSelector.js',
 				CMS_DIR . '/javascript/TranslationTab.js',
-				THIRDPARTY_DIR . '/calendar/calendar.js',
-				THIRDPARTY_DIR . '/calendar/lang/calendar-en.js',
-				THIRDPARTY_DIR . '/calendar/calendar-setup.js',
 				CMS_DIR . "/javascript/SitetreeAccess.js",
 			)
 		);
@@ -314,6 +312,15 @@ class LeftAndMain extends Controller {
 		// The user's theme shouldn't affect the CMS, if, for example, they have replaced
 		// TableListField.ss or Form.ss.
 		SSViewer::set_theme(null);
+	}
+
+	public function handleRequest(SS_HTTPRequest $request) {
+		try {
+			return parent::handleRequest($request);
+		} catch(ValidationException $e) {
+			// Nicer presentation of model-level validation errors
+			return $this->httpError(403, $e->getResult()->message());
+		}
 	}
 
 	
@@ -675,7 +682,11 @@ JS;
 		$record->HasBrokenLink = 0;
 		$record->HasBrokenFile = 0;
 
-		$record->writeWithoutVersion();
+		if($record->hasExtension('Versioned')) {
+			$record->writeWithoutVersion();
+		} else {
+			$record->write();
+		}
 
 		// HACK: This should be turned into something more general
 		$originalURLSegment = $record->URLSegment;
@@ -744,9 +755,13 @@ JS;
 				FormResponse::add("if(\$('sitetree').setNodeParentID) \$('sitetree').setNodeParentID($record->ID, $record->ParentID);");
 			}
 
+			try {
+				$record->write();
+			} catch(ValidationException $e) {
+				$msgs = implode('. ', $e->getResult()->messageList());
+				return $this->httpError(403, sprintf(_t("CMSMain.SaveFailed", "Saving failed: %s"), $msgs));
+			}
 			
-
-			$record->write();
 
 			if( ($record->class != 'VirtualPage') && $originalURLSegment != $record->URLSegment) {
 				$message .= sprintf(_t('LeftAndMain.CHANGEDURL',"  Changed URL to '%s'"),$record->URLSegment);
@@ -846,6 +861,9 @@ JS;
 	 * @return string
 	 */
 	public function deleteTreeNodeJS($page) {
+		// Silently skip if $page isn't a record
+		if (!$page || (!isset($page->ID) && !isset($page->OldID))) return false;
+		
 		$id = $page->ID ? $page->ID : $page->OldID;
 		$js = <<<JS
 var node = $('sitetree').getTreeNodeByIdx($id);

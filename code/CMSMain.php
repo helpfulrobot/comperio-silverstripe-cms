@@ -214,23 +214,28 @@ class CMSMain extends LeftAndMain implements CurrentPageIdentifier, PermissionPr
 		}
 		return $filter_options;
 	}
-		public function SiteTreeFilterDateField() {
-			$dateField = new DateField('SiteTreeFilterDate');
-			
-			// TODO Enabling this means we load jQuery UI by default in the CMS,
-			// which is a pretty big performance hit in 2.4 (where the library isn't used for other parts
-			// of the interface).
-			// $dateField->setConfig('showcalendar', true);
-			
-			return $dateField->Field();
-		}
-		public function SiteTreeFilterPageTypeField() {
-			$types = SiteTree::page_type_classes(); array_unshift($types, 'All');
-			$source = array_combine($types, $types);
-			asort($source);
-			$optionsetField = new DropdownField('ClassName', 'ClassName', $source, 'Any');
-			return $optionsetField->Field();
-		}	
+
+	public function SiteTreeFilterDateField() {
+		$dateField = new DateField('SiteTreeFilterDate');
+		
+		// TODO Enabling this means we load jQuery UI by default in the CMS,
+		// which is a pretty big performance hit in 2.4 (where the library isn't used for other parts
+		// of the interface).
+		// $dateField->setConfig('showcalendar', true);
+		
+		return $dateField->Field();
+	}
+
+	public function SiteTreeFilterPageTypeField() {
+		$types = SiteTree::page_type_classes(); 
+		array_unshift($types, 'Any');
+
+		$source = array_combine($types, $types);
+		asort($source);
+		$optionsetField = new DropdownField('ClassName', 'ClassName', $source, 'Any');
+		
+		return $optionsetField->Field();
+	}
 
 	public function generateDataTreeHints() {
 		$classes = ClassInfo::subclassesFor( $this->stat('tree_class') );
@@ -310,6 +315,7 @@ JS;
 				}
 			}
 
+			$parts = array();
 			if($object) {
 				foreach($array as $k => $v) {
 					$parts[] = "$k : " . $this->jsDeclaration($v);
@@ -317,7 +323,7 @@ JS;
 				return " {\n " . implode(", \n", $parts) . " }\n";
 			} else {
 				foreach($array as $part) $parts[] = $this->jsDeclaration($part);
-				return " [ " . implode(", ", $parts) . " ]\n";
+				return $parts ? " [ " . implode(", ", $parts) . " ]\n" : "[]\n";
 			}
 		} else {
 			return "'" . addslashes($array) . "'";
@@ -557,7 +563,13 @@ JS;
 
 		$p = $this->getNewItem("new-$className-$parent".$suffix, false);
 		$p->Locale = $_REQUEST['Locale'];
-		$p->write();
+		try {
+			$p->write();
+		} catch(ValidationException $e) {
+			$msgs = implode('. ', $e->getResult()->messageList());
+			return $this->httpError(403, sprintf(_t("CMSMain.SaveFailed", "Saving failed: %s"), $msgs));
+		}
+		
 
 		return $this->returnItemToUser($p);
 	}
@@ -610,6 +622,8 @@ JS;
 		$id = $_REQUEST['ID'];
 		Versioned::reading_stage('Live');
 		$record = DataObject::get_by_id("SiteTree", $id);
+
+		if(!$record || !$record->ID) throw new HTTPResponse_Exception("Bad record ID #$id", 404);
 		if($record && !($record->canDelete() && $record->canDeleteFromLive())) return Security::permissionFailure($this);
 		
 		$descRemoved = '';
@@ -665,10 +679,11 @@ JS;
 	public function revert($urlParams, $form) {
 		$id = (int)$_REQUEST['ID'];
 		$record = Versioned::get_one_by_stage('SiteTree', 'Live', "\"SiteTree_Live\".\"ID\" = '{$id}'");
+		if(!$record) return $this->httpError(400);
 
 		// a user can restore a page without publication rights, as it just adds a new draft state
 		// (this action should just be available when page has been "deleted from draft")
-		if(isset($record) && $record && !$record->canEdit()) return Security::permissionFailure($this);
+		if(!$record->canEdit()) return Security::permissionFailure($this);
 
 		$record->doRevertToLive();
 
@@ -689,7 +704,11 @@ JS;
 			"SiteTree", 
 			sprintf("\"SiteTree\".\"ID\" = %d", Convert::raw2sql($data['ID']))
 		);
-		if($record && !$record->canDelete()) return Security::permissionFailure();
+		
+		// Non-existent record
+		if(!$record || !$record->ID) throw new HTTPResponse_Exception("Bad record ID #$id", 404);
+		
+		if(!$record->canDelete()) return Security::permissionFailure();
 		
 		// save ID and delete record
 		$recordID = $record->ID;
@@ -792,14 +811,12 @@ JS;
 	function versions() {
 		$pageID = $this->urlParams['ID'];
 		$page = $this->getRecord($pageID);
-		if($page) {
-			$versions = $page->allVersions($_REQUEST['unpublished'] ? "" : "\"SiteTree\".\"WasPublished\" = 1");
-			return array(
-				'Versions' => $versions,
-			);
-		} else {
-			return sprintf(_t('CMSMain.VERSIONSNOPAGE',"Can't find page #%d",PR_LOW),$pageID);
-		}
+		if(!$page) return $this->httpError(400);
+		
+		$versions = $page->allVersions($_REQUEST['unpublished'] ? "" : "\"SiteTree\".\"WasPublished\" = 1");
+		return array(
+			'Versions' => $versions,
+		);
 	}
 
 	/**
@@ -820,8 +837,8 @@ JS;
 		$SQL_id = Convert::raw2sql($_REQUEST['ID']);
 
 		$page = DataObject::get_by_id("SiteTree", $SQL_id);
-		
-		if($page && !$page->canDeleteFromLive()) return Security::permissionFailure($this);
+		if(!$page) return $this->httpError(400);
+		if(!$page->canDeleteFromLive()) return Security::permissionFailure($this);
 		
 		$page->doUnpublish();
 		
@@ -864,7 +881,8 @@ JS;
 
 	function performRollback($id, $version) {
 		$record = DataObject::get_by_id($this->stat('tree_class'), $id);
-		if($record && !$record->canEdit()) return Security::permissionFailure($this);
+		if(!$record) return $this->httpError(400);
+		if(!$record->canEdit()) return Security::permissionFailure($this);
 		
 		$record->doRollbackTo($version);
 		return $record;
@@ -965,7 +983,8 @@ JS;
 		}
 
 		$page = DataObject::get_by_id("SiteTree", $id);
-		if($page && !$page->canView()) return Security::permissionFailure($this);
+		if(!$page) return $this->httpError(400);
+		if(!$page->canView()) return Security::permissionFailure($this);
 		
 		$record = $page->compareVersions($fromVersion, $toVersion);
 		
@@ -1002,15 +1021,20 @@ JS;
 			$actions = new FieldSet();
 
 			$form = new Form($this, "EditForm", $fields, $actions);
+			
+			// Comparison views shouldn't be editable.
+			// Its important to convert fields *before* loading data,
+			// as the comparison output is HTML and not valid values for the various field types
+			$readonlyFields = $form->Fields()->makeReadonly();
+			$form->setFields($readonlyFields);
+			
 			$form->loadDataFrom($record);
 			$form->loadDataFrom(array(
 				"ID" => $id,
 				"Version" => $fromVersion,
 			));
 			
-			// comparison views shouldn't be editable
-			$readonlyFields = $form->Fields()->makeReadonly();
-			$form->setFields($readonlyFields);
+			
 			
 			foreach($form->Fields()->dataFields() as $field) {
 				$field->dontEscape = true;
@@ -1048,7 +1072,7 @@ JS;
 		}
 
 		return array(
-			"Message" => htmlentities($_REQUEST['Message']),
+			"Message" => htmlentities($_REQUEST['Message'], ENT_COMPAT, 'UTF-8'),
 			"Buttons" => $buttons,
 			"Modal" => $_REQUEST['Modal'] ? true : false,
 		);
@@ -1107,7 +1131,7 @@ JS;
 			if ($SNG_action->canView() && $fieldset = $SNG_action->getParameterFields()) {
 				$formHtml = '';
 				foreach($fieldset as $field) {
-					$formHtml .= $field->Field();
+					$formHtml .= $field->FieldHolder();
 				}
 				$forms[$urlSegment] = $formHtml;
 			}
@@ -1150,6 +1174,9 @@ JS;
 		// Protect against CSRF on destructive action
 		if(!SecurityToken::inst()->checkRequest($request)) return $this->httpError(400);
 		
+		increase_time_limit_to();
+		increase_memory_limit_to();
+		
 		if($this->urlParams['ID']) {
 			$newPageSet[] = DataObject::get_by_id("Page", $this->urlParams['ID']);
 		} else {
@@ -1165,8 +1192,6 @@ JS;
 			$page->HasBrokenLink = 0;
 			$page->HasBrokenFile = 0;
 
-			$lastUsage = (memory_get_usage() - $lastPoint);
-			$lastPoint = memory_get_usage();
 			$content->setValue($page->Content);
 			$content->saveInto($page);
 
@@ -1207,7 +1232,11 @@ JS;
 	 * Helper function to get page count
 	 */
 	function getpagecount() {
-		ini_set('max_execution_time', 0);
+		if(!Permission::check('ADMIN')) return Security::permissionFailure($this);
+		
+		increase_time_limit_to();
+		increase_memory_limit_to();
+		
 		$excludePages = split(" *, *", $_GET['exclude']);
 
 		$pages = DataObject::get("SiteTree", "\"ParentID\" = 0");
@@ -1234,8 +1263,10 @@ JS;
 	}
 
 	function publishall($request) {
-		ini_set("memory_limit", -1);
-		ini_set('max_execution_time', 0);
+		if(!Permission::check('ADMIN')) return Security::permissionFailure($this);
+		
+		increase_time_limit_to();
+		increase_memory_limit_to();
 		
 		$response = "";
 
@@ -1314,9 +1345,8 @@ JS;
 		
 		if(($id = $this->urlParams['ID']) && is_numeric($id)) {
 			$page = DataObject::get_by_id("SiteTree", $id);
-			if($page && (!$page->canEdit() || !$page->canCreate())) {
-				return Security::permissionFailure($this);
-			}
+			if(!$page) return $this->httpError(400);
+			if(!$page->canEdit() || !$page->canCreate()) return Security::permissionFailure($this);
 
 			$newPage = $page->duplicate();
 			
@@ -1338,9 +1368,8 @@ JS;
 		
 		if(($id = $this->urlParams['ID']) && is_numeric($id)) {
 			$page = DataObject::get_by_id("SiteTree", $id);
-			if($page && (!$page->canEdit() || !$page->canCreate())) {
-				return Security::permissionFailure($this);
-			}
+			if(!$page) return $this->httpError(400);
+			if(!$page->canEdit() || !$page->canCreate()) return Security::permissionFailure($this);
 
 			$newPage = $page->duplicateWithChildren();
 
